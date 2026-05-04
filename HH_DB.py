@@ -58,7 +58,7 @@ with st.sidebar:
     st.header("DATA FILTER",divider=True)
 
     # Take Stock 
-    select_takestock = ["All","HH"]
+    select_takestock = ["HH","All"]
     takestock = st.selectbox("Take Stock",select_takestock,)
     # Set Year Filter
     year = pd.DataFrame(data['YYYY'].unique())
@@ -154,6 +154,7 @@ with sum4:
 ch1,ch2 = st.columns((2))
 
 channel = filtered_data.groupby("Channel")['AmountUSD'].sum().reset_index()
+channel_ctn = filtered_data.groupby("Channel")['QtyCtn'].sum().reset_index()
 
 # USe Data Filter Channel
 supllier = filter_channel.groupby("SupplierID")['AmountUSD'].sum().reset_index()
@@ -162,7 +163,7 @@ supllier = supllier.sort_values(by="AmountUSD",ascending=True)
 product_company = filter_channel.groupby("CompanyID")["AmountUSD"].sum().reset_index()
 
 with ch1:
-    bar = px.bar(channel,x="Channel",y="AmountUSD",title="Channel Sales",)
+    bar = px.bar(channel,x="Channel",y="AmountUSD",title="Channel Sales [Amount]",)
     bar.update_traces(
         texttemplate="%{y:.2s}",
        
@@ -170,15 +171,22 @@ with ch1:
     st.plotly_chart(bar,use_container_width=True,height=500)
 
 with ch2:
-    pie = px.pie(product_company,names="CompanyID",values="AmountUSD",
-                 title="Product Company",labels="CompanyID",
-                 hole=0.2)
-    pie.update_traces(
-      
-        textinfo="value+percent+label"
+    bar2 = px.bar(channel_ctn,x="Channel",y="QtyCtn",title="Channel Sales [CTN]",)
+    bar2.update_traces(
+        texttemplate="%{y:.2s}",
        
     )
-    st.plotly_chart(pie,use_container_width=True,height=500)
+    st.plotly_chart(bar2,use_container_width=True,height=500)
+
+
+pie = px.pie(product_company,names="CompanyID",values="AmountUSD",
+                title="Product Company",labels="CompanyID",
+                hole=0.2)
+pie.update_traces(
+    texttemplate="%{label}<br>%{percent:.1%}<br>%{value:,.2s}",
+    textposition="inside"
+)
+st.plotly_chart(pie,use_container_width=True,height=500)
 
 # Create Horizonetal Bar Chart
 bar = px.bar(supllier,x="AmountUSD",y="SupplierID",title="SupplierID",orientation="h")
@@ -217,26 +225,60 @@ daily_sale = filter_channel.groupby("DD-MM")["AmountUSD"].sum().reset_index()
 line = px.line(daily_sale,x="DD-MM",y="AmountUSD",title="Daily Sales",text="AmountUSD")
 
 line.update_traces(
-    texttemplate="%{y:,.2s}",
+    texttemplate="%{y:,.3s}",
     textposition="top center"
 )
 st.plotly_chart(line,use_container_width=True,height=500)
 
 with st.expander("Detail Daily Sale "):
-    
-    daily = filter_channel[filter_channel["QtyCtn"] > 0].pivot_table(aggfunc="sum",
+
+    st.title(f"Daily Sale {_channel}")
+    start_date = pd.to_datetime(filtered_data["Date"],).min()
+    end_date = pd.to_datetime(filtered_data["Date"]).max()
+
+
+
+    # daily.columns = pd.MultiIndex.from_tuples([(col1,col2) for col1,col2 in daily.columns])
+
+
+    filtered_data["Date"] = pd.to_datetime(filtered_data["Date"]).dt.date
+    filter_channel["Date"] = pd.to_datetime(filter_channel["Date"]).dt.date
+
+    fil = st.multiselect("Supllier ",filter_channel['SupplierID'].unique())
+
+    _,col1,col2,_ = st.columns([0.4,0.5,0.5,0.4])
+
+    with col1:
+        s = st.date_input("Start Date",start_date,min_value=start_date,max_value=end_date)
+    with col2:
+        e = st.date_input("End Date",end_date,max_value=end_date,min_value=start_date)
+
+    daily = filter_channel[(filter_channel["QtyCtn"] > 0) &
+                           (filter_channel['Date'] >= s)&
+                           (filter_channel['Date'] <= e)
+                           
+                           ].pivot_table(aggfunc="sum",
                                        index=["SupplierID","ProductCat","ItemName"],
                                        columns=["DD-MM"],
                                        values=["QtyCtn","AmountUSD"],
                                        fill_value=0,
-                                       sort=True
+                                    #    sort=False
                                        
                                        )
-    # daily.columns = pd.MultiIndex.from_tuples([(col1,col2) for col1,col2 in daily.columns])
     daily.columns = [f"{col1.replace("Amount","").replace("Qty","")} | {col2}" for col1,col2 in daily.columns]
-    daily = daily.reset_index().set_index(["SupplierID","ProductCat","ItemName"])
-    st.title(f"Daily Sale {_channel}")
-    st.dataframe(daily.style.format("{:,.2f}")
+    
+    
+
+    # daily = daily.reset_index().set_index(["SupplierID","ProductCat","ItemName"])
+    daily = daily.reset_index()
+
+    daily = daily[daily["SupplierID"].isin(fil)] if fil else daily
+    daily = daily.reset_index().set_index(["index","SupplierID","ProductCat","ItemName"])
+
+
+    
+    st.dataframe(
+        daily.style.format("{:,.2f}")
                  
                  )
     
@@ -252,7 +294,7 @@ by_monthly = by_monthly.sort_values(by=["YYYY","MM"],ascending=[True,True]).rese
 monthly_chart = go.Figure()
 monthly_chart = monthly_chart.add_traces(go.Bar(x=by_monthly["MM-YYYY"],y=by_monthly["AmountUSD"],
                                                 text=by_monthly["AmountUSD"],
-                                                name="Monthly Amount",texttemplate="%{text:.2~s}"))
+                                                name="Monthly Amount",texttemplate="%{text:.3~s}"))
 monthly_chart.update_layout(
     title="Monthly Sales",
     font=dict(size=16),
